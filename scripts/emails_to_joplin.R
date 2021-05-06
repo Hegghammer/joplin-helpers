@@ -1,0 +1,96 @@
+# Script for filing emails to Joplin
+# 
+# Requirements:
+# - a dedicated gmail account to serve as a transit point for emails to be filed to Joplin.
+# - a json file with credentials to this gmail account, with the file path stored as an environmental variable "JOPLIN_GMAIL_AUTH" in the .Renviron file.
+# - a functioning installation of Joplin's command line interface.
+# - a notebook in your Joplin repository titled "000_inbox", to serve as the "host notebook" for the incoming emails. If you prefer another name, just change the notebook parameter of the function in stage 4 below.
+# - a working directory declared in an environmental variable "JOPLIN_WD" in your .Renviron file. 
+#
+# The script logs into the gmail account, identifies unread messages,
+# and files them - and any associated attachments - to your Joplin repository via the Joplin CLI. The script can then be automated as a cronjob (Linux/Mac) or scheduled task (Windows).
+#
+# For more information, see the documentation for the gmailr package (https://gmailr.r-lib.org/) 
+# and the Joplin CLI (https://joplinapp.org/terminal/).
+
+library(gmailr)
+library(base64url)
+library(glue)
+library(fs)
+library(purrr)
+library(rlist)
+
+# 1) set working directory
+
+setwd(Sys.getenv("JOPLIN_WD"))
+
+# 2) login
+gm_auth_configure(path = Sys.getenv("JOPLIN_GMAIL_AUTH"))
+gm_auth(email = TRUE, cache = ".secret")
+
+# 3) get messages
+main_list <-  gm_threads()[[1]]
+
+if (main_list[["resultSizeEstimate"]] > 0) {
+  
+  ids <- map(main_list[[1]], ~ .x[["id"]])
+  messages <- map(ids, gm_message)
+  unread <- list.filter(messages, labelIds[[1]] == "UNREAD")
+  
+  msg <- unread[[1]]
+  
+  # 4) function to file in Joplin
+  file_to_joplin <- function(msg, notebook = "000_inbox") {
+    
+    # a) get subject
+    subject <- gm_subject(msg)
+    
+    # b) get body (location varies depending on email structure)
+    level1 <- gm_body(msg)
+    level2 <- msg[["payload"]][["parts"]][[1]][["parts"]][[1]][["body"]][["data"]]
+    level3 <- msg[["payload"]][["parts"]][[1]][["parts"]][[1]][["parts"]][[1]][["body"]][["data"]]
+    
+    if (length(level1) == 0 && length(level2) == 0) {
+      body <- base64_urldecode(level3)
+    } else if (length(level1) == 0 && length(level2) == 1) {
+      body <- base64_urldecode(level2)
+    } else {
+      body <- unlist(gm_body(msg))
+    }
+
+    # c) save body as markdown
+    md_path <- "./transit/body/message.md"
+    write(body, md_path)
+    
+    # d) save attachments
+    gm_save_attachments(msg, path = "./transit/attachments/")
+    attachments <- dir_ls("./transit/attachments/")
+    
+    # e) make note from markdown doc
+    system(glue("joplin import {md_path} '{notebook}'"))
+    Sys.sleep(1)
+    
+    # f) give it the message subject as name
+    system(glue("joplin set 'message' title '{subject}'"))
+    Sys.sleep(0.5)
+    
+    # g) add attachments
+    if (length(attachments) > 0) {
+      for (i in 1:length(attachments)) {
+        system(glue("joplin attach '{subject}' '{attachments[[i]]}'"))
+        Sys.sleep(2)
+      }  
+    }
+    
+    # h) clear folders
+    files_to_remove <- c(attachments, dir_ls("./transit/body/"))
+    file_delete(files_to_remove)
+    
+    # i) move emails to trash
+    unread_ids <- map(unread, ~ .x[["id"]])
+    map(unread_ids, gm_trash_message)
+  }
+  
+  # 5) Iterate over unread messages
+  map(unread, file_to_joplin)
+}
