@@ -29,15 +29,13 @@ gm_auth_configure(path = Sys.getenv("JOPLIN_GMAIL_AUTH"))
 gm_auth(email = TRUE, cache = ".secret")
 
 # 3) get messages
-main_list <-  gm_threads()[[1]]
+main_list <-  gm_messages()[[1]]
 
 if (main_list[["resultSizeEstimate"]] > 0) {
   
   ids <- map(main_list[[1]], ~ .x[["id"]])
   messages <- map(ids, gm_message)
   unread <- list.filter(messages, labelIds[[1]] == "UNREAD")
-  
-  msg <- unread[[1]]
   
   # 4) function to file in Joplin
   file_to_joplin <- function(msg, notebook = "000_inbox") {
