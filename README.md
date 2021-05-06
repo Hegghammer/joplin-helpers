@@ -1,4 +1,4 @@
-# Joplin helper scripts
+# Joplin helpers
 
 <img align="left" width="20" height="20" src="joplin_logo.jpeg">
 
