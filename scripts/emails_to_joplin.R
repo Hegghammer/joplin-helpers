@@ -8,7 +8,8 @@
 # - a working directory declared in an environmental variable "JOPLIN_WD" in your .Renviron file. 
 #
 # The script logs into the gmail account, identifies unread messages,
-# and files them - and any associated attachments - to your Joplin repository via the Joplin CLI. The script can then be automated as a cronjob (Linux/Mac) or scheduled task (Windows).
+# and files them - and any associated attachments - to your Joplin repository via the Joplin CLI. The script can then be automated as a cronjob (Linux/Mac) or scheduled task (Windows). On Linux, do not run as root, since root uses a different .Renviron file and package library.
+#
 #
 # For more information, see the documentation for the gmailr package (https://gmailr.r-lib.org/) 
 # and the Joplin CLI (https://joplinapp.org/terminal/).
@@ -25,17 +26,21 @@ library(rlist)
 setwd(Sys.getenv("JOPLIN_WD"))
 
 # 2) login
+base::message("Checking inbox for new messages ...")
 gm_auth_configure(path = Sys.getenv("JOPLIN_GMAIL_AUTH"))
 gm_auth(email = TRUE, cache = ".secret")
 
 # 3) get messages
 main_list <-  gm_messages()[[1]]
 
+
 if (main_list[["resultSizeEstimate"]] > 0) {
   
   ids <- map(main_list[[1]], ~ .x[["id"]])
   messages <- map(ids, gm_message)
   unread <- list.filter(messages, labelIds[[1]] == "UNREAD")
+  
+  base::message(glue("{length(unread)} messages found."))
   
   # 4) function to file in Joplin
   file_to_joplin <- function(msg, notebook = "000_inbox") {
@@ -91,4 +96,11 @@ if (main_list[["resultSizeEstimate"]] > 0) {
   
   # 5) Iterate over unread messages
   map(unread, file_to_joplin)
-}
+  
+  base::message(glue("{length(unread)} message(s) imported. Syncing joplin library ..."))
+  
+  system("joplin sync")
+  
+  base::message("Email import complete.")
+
+} else base::message("No new messages.")
